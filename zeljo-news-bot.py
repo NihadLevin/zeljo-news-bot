@@ -78,6 +78,10 @@ KLJUCNE_RIJECI = KLUB + LJUDI
 TEKST_MIN_SPOMINJANJA = 1
 
 MAX_STAROST_SATI = 48    # stariji članci se preskaču
+# True = ista vijest s istim naslovom na dva portala objavi se samo jednom.
+# False = objavi se sa svakog portala. Isti link se nikad ne objavljuje dvaput.
+DUPLIKATI_PO_NASLOVU = False
+
 PRVI_PUT_SATI = 24       # pri prvom pokretanju objavi sve članke iz zadnjih ovoliko sati
 SEEN_FILE = "vijesti_vidjene.json"
 UA = ("Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 "
@@ -445,10 +449,14 @@ def new_items(items: list[dict], max_sati: float = MAX_STAROST_SATI) -> list[dic
     novi = []
     for it in sorted(items, key=lambda x: x["ts"]):
         key = clean_url(it["link"])
-        title_key = "t:" + fold(it["title"])  # isti članak na dva mjesta objavi jednom
-        if key in seen or title_key in seen:
+        if key in seen:  # isti link nikad dvaput
             continue
-        seen[key] = seen[title_key] = now
+        if DUPLIKATI_PO_NASLOVU:
+            title_key = "t:" + fold(it["title"])
+            if title_key in seen:
+                continue
+            seen[title_key] = now
+        seen[key] = now
         novi.append(it)
 
     # portali bez RSS-a: otvori nove članke (paralelno) da se vidi tekst i pravi datum
