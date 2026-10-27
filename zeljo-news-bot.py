@@ -15,7 +15,7 @@ import unicodedata
 from html import unescape
 from html.parser import HTMLParser
 from urllib.error import HTTPError
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, quote_plus, urljoin, urlsplit
 from urllib.request import Request, urlopen
 
 import feedparser
@@ -135,8 +135,34 @@ def domain(url: str) -> str:
 
 
 def get_html(url: str) -> str:
-    req = Request(url, headers={"User-Agent": UA, "Accept-Language": "bs,hr;q=0.9"})
+    req = Request(url, headers={
+        "User-Agent": UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "bs-BA,bs;q=0.9,hr;q=0.8,en;q=0.7",
+        "Referer": "https://www.google.com/",
+    })
     return urlopen(req, timeout=20).read().decode("utf-8", errors="replace")
+
+
+REZERVA_UPIT = "(Željezničar OR Željo OR Grbavica OR Osim)"
+
+
+def read_search(izvor: dict) -> list[dict]:
+    """Rezerva kad portal blokira bota: Bing News pretraga samo tog portala."""
+    dom = domain(izvor.get("stranica") or izvor.get("sajt") or izvor.get("rss"))
+    q = quote_plus(f"site:{dom} {REZERVA_UPIT}")
+    feed = feedparser.parse(f"https://www.bing.com/news/search?q={q}&format=rss&setlang=bs", agent=UA)
+    items = []
+    for i, e in enumerate(feed.entries):
+        link = e.get("link", "")
+        if "bing.com" in link:  # Bing daje svoj link za praćenje, pravi je u parametru url=
+            link = (parse_qs(urlsplit(link).query).get("url") or [""])[0]
+        if not link or domain(link) != dom:
+            continue
+        ts = calendar.timegm(e.published_parsed) if e.get("published_parsed") else time.time() - i
+        items.append({"title": unescape(e.get("title", "")).strip() or link, "link": link, "ts": ts,
+                      "uvod": re.sub(r"<[^>]+>", " ", unescape(e.get("summary", "")))[:1000]})
+    return items
 
 
 class PageParser(HTMLParser):
@@ -285,6 +311,12 @@ def fetch_all() -> list[dict]:
         except Exception as e:
             found = []
             print(f"⚠️ {izvor['naziv']}: {e}")
+        if not found and izvor.get("sve") is not True:  # blokiran ili prazan: probaj pretragu
+            try:
+                found = read_search(izvor)
+                print(f"↪️ {izvor['naziv']}: preko pretrage {len(found)}")
+            except Exception as e:
+                print(f"⚠️ {izvor['naziv']} (pretraga): {e}")
         for it in found:
             it["source"] = izvor["naziv"]
             it["sve"] = izvor.get("sve", False)
