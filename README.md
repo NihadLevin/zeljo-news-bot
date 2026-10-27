@@ -9,7 +9,7 @@ Runs for free on GitHub Actions, with no server, computer or phone needed.
 
 **Topics:** Željezničar (all grammatical cases), Željo, FKŽ, Grbavica, Manijaci, plavo-bijeli, Ivica Osim, Amar Osim, the head coach and any players on the list.
 
-For portals with an RSS feed, the bot searches the title, link and article intro. For the others, it searches the title and link. If the same article appears on several portals, it is posted only once.
+The bot searches the title, link and full article text, so any mention of the club is enough. For portals without RSS, it opens each new article to read its text. If the same article appears on several portals, it is posted only once.
 
 ## How it works
 
@@ -26,7 +26,7 @@ For portals with an RSS feed, the bot searches the title, link and article intro
    - Secret: the webhook URL
 3. **First run:** **Actions → Vijesti → Run workflow**.
 
-On the first run the bot posts up to 3 of the latest articles. After that, it posts only new ones.
+On the first run the bot posts every matching article from the last 24 hours. After that, it posts only new ones.
 
 ## Customization
 
@@ -38,6 +38,8 @@ Everything is set at the top of `zeljo-news-bot.py` (open the file on GitHub →
 | Club-related keywords | `KLUB` |
 | Players, coaches, staff | `LJUDI` (always first + last name, e.g. `"sulejman* krpic*"`) |
 | Maximum article age | `MAX_STAROST_SATI` |
+| How many text mentions are needed | `TEKST_MIN_SPOMINJANJA` |
+| How far back the first run looks | `PRVI_PUT_SATI` |
 | How often it checks | `cron` in `.github/workflows/vijesti.yml` |
 
 A `*` at the end of a word means "any ending" (`grbavic*` matches Grbavica, Grbavici, Grbavicu…). Diacritics and capitalization don't matter.
