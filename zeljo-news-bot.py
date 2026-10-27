@@ -86,9 +86,14 @@ def load_seen() -> bool:
     global seen
     if not os.path.exists(SEEN_FILE):
         return True
-    with open(SEEN_FILE, encoding="utf-8") as f:
-        seen = json.load(f)
-    return False
+    try:
+        with open(SEEN_FILE, encoding="utf-8") as f:
+            seen = json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        print("⚠️ vijesti_vidjene.json je prazan ili oštećen, krećem ispočetka")
+        seen = {}
+        return True
+    return not seen  # prazna lista = kao prvo pokretanje
 
 
 def save_seen() -> None:
