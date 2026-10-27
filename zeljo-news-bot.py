@@ -347,9 +347,28 @@ def discover_rss(sajt: str) -> str | None:
     return None
 
 
+RSS_STRANICA = 3  # WordPress RSS daje samo ~10 članaka; čitaj i starije stranice (?paged=2, 3)
+
+
+def read_rss_all(url: str) -> list[dict]:
+    items = read_rss(url)
+    if items and re.search(r"/feed/?$", url):  # WordPress feed podržava straničenje
+        vidjeni = {it["link"] for it in items}
+        for page in range(2, RSS_STRANICA + 1):
+            try:
+                more = [it for it in read_rss(f"{url}?paged={page}") if it["link"] not in vidjeni]
+            except Exception:
+                break
+            if not more:
+                break
+            vidjeni.update(it["link"] for it in more)
+            items += more
+    return items
+
+
 def read_source(izvor: dict) -> list[dict]:
     if "rss" in izvor:
-        return read_rss(izvor["rss"])
+        return read_rss_all(izvor["rss"])
     if "stranica" in izvor:
         return read_page(izvor)
 
@@ -359,7 +378,7 @@ def read_source(izvor: dict) -> list[dict]:
         found = rss_cache[naziv] or "nije nađen, čitam stranicu"
         print(f"🔎 {naziv}: RSS {found}")
     if rss_cache[naziv]:
-        items = read_rss(rss_cache[naziv])
+        items = read_rss_all(rss_cache[naziv])
         if items:
             return items
     return read_page({"stranica": izvor["sajt"]})
