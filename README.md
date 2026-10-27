@@ -9,7 +9,7 @@ Runs for free on GitHub Actions, with no server, computer or phone needed.
 
 **Topics:** Željezničar (all grammatical cases), Željo, FKŽ, Grbavica, Manijaci, plavo-bijeli, Ivica Osim, Amar Osim, the head coach and any players on the list.
 
-The bot searches the title, link and full article text, so any mention of the club is enough. For portals without RSS, it opens each new article to read its text. If the same article appears on several portals, it is posted only once.
+The bot searches the title, link and full article text, so any mention of the club is enough. For portals without RSS, it opens each new article to read its text. If several portals cover the same story, it is posted from each of them (set `DUPLIKATI_PO_NASLOVU = True` to skip identical titles).
 
 ## How it works
 
