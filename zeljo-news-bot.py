@@ -169,19 +169,28 @@ REZERVA_UPIT = "Željezničar"
 
 
 def read_search(izvor: dict) -> list[dict]:
-    """Rezerva kad portal blokira bota: Bing News pretraga samo tog portala."""
+    """Rezerva kad portal blokira bota: pretraga vijesti samo tog portala (Bing, pa Google News)."""
     dom = domain(izvor.get("stranica") or izvor.get("sajt") or izvor.get("rss"))
     q = quote_plus(f"site:{dom} {REZERVA_UPIT}")
-    feed = feedparser.parse(f"https://www.bing.com/news/search?q={q}&format=rss&setlang=bs", agent=UA)
+    entries = feedparser.parse(f"https://www.bing.com/news/search?q={q}&format=rss&setlang=bs",
+                               agent=UA).entries
+    if not entries:
+        # Google News: linkovi vode preko news.google.com, ali se u browseru otvore na portalu
+        entries = feedparser.parse(f"https://news.google.com/rss/search?q={q}&hl=bs&gl=BA&ceid=BA:bs",
+                                   agent=UA).entries
     items = []
-    for i, e in enumerate(feed.entries):
+    for i, e in enumerate(entries):
         link = e.get("link", "")
         if "bing.com" in link:  # Bing daje svoj link za praćenje, pravi je u parametru url=
             link = (parse_qs(urlsplit(link).query).get("url") or [""])[0]
-        if not link or domain(link) != dom:
+        izvor_url = (e.get("source") or {}).get("href", "")
+        if not link or (domain(link) != dom and domain(izvor_url) != dom):
             continue
+        naslov = unescape(e.get("title", "")).strip()
+        naslov = re.sub(r"\s+-\s+[^-]+$", "", naslov) if "news.google" in link else naslov
+        e["title"] = naslov
         ts = calendar.timegm(e.published_parsed) if e.get("published_parsed") else time.time() - i
-        items.append({"title": unescape(e.get("title", "")).strip() or link, "link": link, "ts": ts,
+        items.append({"title": e["title"] or link, "link": link, "ts": ts,
                       "uvod": re.sub(r"<[^>]+>", " ", unescape(e.get("summary", "")))[:1000]})
     return items
 
@@ -255,7 +264,10 @@ def read_page(izvor: dict, preko_citaca: bool = False) -> list[dict]:
         html, url = fetch_page(url)  # url = konačna adresa (npr. scsport.ba -> scsport.raport.ba)
     parser = PageParser()
     parser.feed(html)
-    uzorak = re.compile(izvor["uzorak"]) if izvor.get("uzorak") else None
+    if preko_citaca:  # čitač zna vratiti i markdown: [naslov](link)
+        parser.links += [(h, t) for t, h in re.findall(r"\[([^\]]{3,300})\]\((https?://[^)\s]+)\)", html)]
+    # preko čitača linkovi znaju biti malo drugačiji, pa tada važi opće pravilo
+    uzorak = re.compile(izvor["uzorak"]) if izvor.get("uzorak") and not preko_citaca else None
 
     titles: dict[str, str] = {}  # isti članak zna imati više linkova (slika, naslov)
     for href, text in parser.links:
@@ -263,6 +275,9 @@ def read_page(izvor: dict, preko_citaca: bool = False) -> list[dict]:
         ok = uzorak.match(link) if uzorak else looks_like_article(link, url)
         if ok and (link not in titles or len(text) > len(titles[link])):
             titles[link] = text
+    if preko_citaca and not titles:
+        tekst = " ".join(re.sub(r"<[^>]+>", " ", html).split())
+        print(f"   čitač vratio {len(html)} znakova, linkova {len(parser.links)}: {tekst[:160]!r}")
 
     now = time.time()
     items = []
