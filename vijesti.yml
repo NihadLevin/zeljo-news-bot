@@ -1,0 +1,40 @@
+name: Vijesti
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # svakih 15 minuta (GitHub zna kasniti par minuta)
+  workflow_dispatch:          # dugme "Run workflow" za ručno pokretanje
+
+permissions:
+  contents: write             # da može sačuvati vijesti_vidjene.json
+
+concurrency:
+  group: vijesti
+  cancel-in-progress: false
+
+jobs:
+  objavi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Provjeri portale i objavi
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python zeljo-news-bot.py
+
+      - name: Sačuvaj objavljene članke
+        if: always()
+        run: |
+          git config user.name "vijesti-bot"
+          git config user.email "vijesti-bot@users.noreply.github.com"
+          git add vijesti_vidjene.json
+          git diff --cached --quiet || (git commit -m "Ažurirane objavljene vijesti" && git push)

@@ -13,7 +13,7 @@ For portals with an RSS feed, the bot searches the title, link and article intro
 
 ## How it works
 
-1. GitHub Actions runs `vijesti.py` every 15 minutes.
+1. GitHub Actions runs `zeljo-news-bot.py` every 15 minutes.
 2. The script reads the portals, via RSS where available and by reading the front page for the rest.
 3. Articles that mention the club are posted to Discord through a webhook.
 4. Posted articles are saved in `vijesti_vidjene.json`, so they are never repeated.
@@ -30,7 +30,7 @@ On the first run the bot posts up to 3 of the latest articles. After that, it po
 
 ## Customization
 
-Everything is set at the top of `vijesti.py` (open the file on GitHub → ✏️ → **Commit changes**):
+Everything is set at the top of `zeljo-news-bot.py` (open the file on GitHub → ✏️ → **Commit changes**):
 
 | What | Where |
 |---|---|
