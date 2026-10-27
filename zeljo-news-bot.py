@@ -39,7 +39,7 @@ IZVORI = [
     # čitanje stranice
     {"naziv": "SportSport.ba", "stranica": "https://sportsport.ba/fudbal",
      "uzorak": r"^https://sportsport\.ba/[a-z0-9-]+/[a-z0-9-]+/\d+$"},
-    {"naziv": "SCsport.ba", "stranica": "https://scsport.ba/"},
+    {"naziv": "SCsport.ba", "sajt": "https://scsport.raport.ba/"},
     {"naziv": "BHFudbal.ba", "stranica": "https://bhfudbal.ba/"},
     {"naziv": "Avaz.ba", "stranica": "https://avaz.ba/sport"},
 ]
@@ -134,17 +134,33 @@ def domain(url: str) -> str:
     return urlsplit(url).netloc.lower().removeprefix("www.")
 
 
+HEADERS = {
+    "User-Agent": UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "bs-BA,bs;q=0.9,hr;q=0.8,en;q=0.7",
+    "Referer": "https://www.google.com/",
+}
+
+
+def fetch_page(url: str) -> tuple[str, str]:
+    """Vraća (html, konačna adresa nakon preusmjeravanja)."""
+    resp = urlopen(Request(url, headers=HEADERS), timeout=20)
+    return resp.read().decode("utf-8", errors="replace"), resp.geturl()
+
+
 def get_html(url: str) -> str:
-    req = Request(url, headers={
-        "User-Agent": UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "bs-BA,bs;q=0.9,hr;q=0.8,en;q=0.7",
-        "Referer": "https://www.google.com/",
-    })
-    return urlopen(req, timeout=20).read().decode("utf-8", errors="replace")
+    return fetch_page(url)[0]
 
 
-REZERVA_UPIT = "(Željezničar OR Željo OR Grbavica OR Osim)"
+def fetch_via_reader(url: str) -> str:
+    """Rezerva za portale koji blokiraju GitHub: stranicu otvori besplatni servis r.jina.ai
+    (s drugih servera i s pravim browserom, pa radi i za stranice na JavaScriptu)."""
+    req = Request("https://r.jina.ai/" + url, headers={
+        "User-Agent": UA, "X-Return-Format": "html", "X-Timeout": "25"})
+    return urlopen(req, timeout=40).read().decode("utf-8", errors="replace")
+
+
+REZERVA_UPIT = "Željezničar"
 
 
 def read_search(izvor: dict) -> list[dict]:
@@ -226,9 +242,14 @@ def looks_like_article(url: str, base: str) -> bool:
     return bool(re.search(r"\d{4,}", path)) or last.count("-") >= 3
 
 
-def read_page(izvor: dict) -> list[dict]:
+def read_page(izvor: dict, preko_citaca: bool = False) -> list[dict]:
     url = izvor["stranica"]
-    parser = parse_page(url)
+    if preko_citaca:
+        html = fetch_via_reader(url)
+    else:
+        html, url = fetch_page(url)  # url = konačna adresa (npr. scsport.ba -> scsport.raport.ba)
+    parser = PageParser()
+    parser.feed(html)
     uzorak = re.compile(izvor["uzorak"]) if izvor.get("uzorak") else None
 
     titles: dict[str, str] = {}  # isti članak zna imati više linkova (slika, naslov)
@@ -261,7 +282,10 @@ def real_title(url: str) -> str | None:
     try:
         html = get_html(url)
     except Exception:
-        return None
+        try:
+            html = fetch_via_reader(url)  # portal blokira GitHub
+        except Exception:
+            return None
     for pattern in TITLE_PATTERNS:
         m = pattern.search(html)
         if m and m.group(1).strip():
@@ -311,7 +335,14 @@ def fetch_all() -> list[dict]:
         except Exception as e:
             found = []
             print(f"⚠️ {izvor['naziv']}: {e}")
-        if not found and izvor.get("sve") is not True:  # blokiran ili prazan: probaj pretragu
+        stranica = izvor.get("stranica") or izvor.get("sajt")
+        if not found and stranica:  # blokiran ili prazan: probaj preko čitača
+            try:
+                found = read_page({**izvor, "stranica": stranica}, preko_citaca=True)
+                print(f"↪️ {izvor['naziv']}: preko čitača {len(found)}")
+            except Exception as e:
+                print(f"⚠️ {izvor['naziv']} (čitač): {e}")
+        if not found and not izvor.get("sve"):  # i dalje ništa: Bing News pretraga
             try:
                 found = read_search(izvor)
                 print(f"↪️ {izvor['naziv']}: preko pretrage {len(found)}")
