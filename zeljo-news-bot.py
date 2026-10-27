@@ -500,8 +500,25 @@ def escape_md(text: str) -> str:
     return re.sub(r"([*_`~|>\\])", r"\\\1", text)
 
 
-def post(content: str) -> None:
-    body = json.dumps({"content": content, "username": "Vijesti",
+BOJA = 0x1E5AA8  # plava linija sa strane svake objave
+
+
+def article_embed(it: dict) -> dict:
+    """Jedan članak = jedna kartica: naslov (klik vodi na članak), portal i vrijeme. Bez slika."""
+    embed = {
+        "title": it["title"][:256],
+        "url": it["link"],
+        "color": BOJA,
+        "footer": {"text": f"📰 {it['source']}"},
+    }
+    if it.get("ts") and abs(time.time() - it["ts"]) < 7 * 86400:
+        embed["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(it["ts"]))
+    return embed
+
+
+def post(embed: dict) -> None:
+    # link je samo u kartici, ne u tekstu poruke, pa Discord ne dodaje pregled sa slikom
+    body = json.dumps({"embeds": [embed], "username": "Vijesti",
                        "allowed_mentions": {"parse": []}}).encode()
     for _ in range(5):
         req = Request(WEBHOOK, data=body, headers={"Content-Type": "application/json",
@@ -530,7 +547,7 @@ def main() -> None:
         for it in fresh:
             if it.get("slug"):  # naslov je bio samo iz linka, uzmi pravi sa stranice članka
                 it["title"] = real_title(it["link"]) or it["title"]
-            post(f"📰 **{escape_md(it['title'])}**\n_{it['source']}_\n{it['link']}")
+            post(article_embed(it))
     finally:
         save_seen()  # sačuvaj i ako objava pukne na pola
     print(f"{time.strftime('%d.%m. %H:%M')} objavljeno {len(fresh)}")
