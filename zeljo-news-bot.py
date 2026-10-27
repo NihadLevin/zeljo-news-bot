@@ -12,6 +12,7 @@ import os
 import re
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from html import unescape
 from html.parser import HTMLParser
 from urllib.error import HTTPError
@@ -70,8 +71,14 @@ LJUDI = [
 
 KLJUCNE_RIJECI = KLUB + LJUDI
 
+# Kod portala s RSS-om bot čita i cijeli tekst članka. Ako se klub ne spominje u
+# naslovu ni uvodu, članak se objavi kad se u tekstu spomene bar ovoliko puta.
+# 1 = svako spominjanje, 2 = bar dva spominjanja, 0 = ne gledaj tekst.
+# Kod portala bez RSS-a bot za svaki novi članak otvori njegovu stranicu i pročita tekst.
+TEKST_MIN_SPOMINJANJA = 1
+
 MAX_STAROST_SATI = 48    # stariji članci se preskaču
-PRVI_PUT_OBJAVI = 3      # pri prvom pokretanju objavi samo ovoliko najnovijih
+PRVI_PUT_SATI = 24       # pri prvom pokretanju objavi sve članke iz zadnjih ovoliko sati
 SEEN_FILE = "vijesti_vidjene.json"
 UA = ("Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36")
@@ -130,6 +137,10 @@ def matches(text: str) -> bool:
     return KLJUCNE is None or bool(KLJUCNE.search(fold(text)))
 
 
+def mentions(text: str) -> int:
+    return len(KLJUCNE.findall(fold(text))) if KLJUCNE and text else 0
+
+
 def clean_url(url: str) -> str:
     p = urlsplit(url)
     return f"{p.scheme}://{p.netloc}{p.path}".rstrip("/")
@@ -165,7 +176,7 @@ def fetch_via_reader(url: str) -> str:
     return urlopen(req, timeout=40).read().decode("utf-8", errors="replace")
 
 
-REZERVA_UPIT = "Željezničar"
+REZERVA_UPIT = "(Željezničar OR Željo OR Grbavica)"
 
 
 def read_search(izvor: dict) -> list[dict]:
@@ -241,7 +252,9 @@ def read_rss(url: str) -> list[dict]:
             continue
         ts = calendar.timegm(e.published_parsed) if e.get("published_parsed") else time.time() - i
         uvod = re.sub(r"<[^>]+>", " ", unescape(e.get("summary", "")))[:1000]
-        items.append({"title": title, "link": link, "ts": ts, "uvod": uvod})
+        tekst = " ".join(c.get("value", "") for c in e.get("content", []))
+        tekst = re.sub(r"<[^>]+>", " ", unescape(tekst))
+        items.append({"title": title, "link": link, "ts": ts, "uvod": uvod, "tekst": tekst})
     return items
 
 
@@ -285,7 +298,8 @@ def read_page(izvor: dict, preko_citaca: bool = False) -> list[dict]:
         slug = urlsplit(link).path.strip("/").split("/")[-1]
         from_slug = len(text) < 15
         title = re.sub(r"[-_]+", " ", re.sub(r"\d{4,}", "", slug)).strip() if from_slug else text
-        items.append({"title": title or link, "link": link, "ts": now - i, "slug": from_slug})
+        items.append({"title": title or link, "link": link, "ts": now - i, "slug": from_slug,
+                      "stranica": True})
     return items
 
 
@@ -377,20 +391,80 @@ def fetch_all() -> list[dict]:
     return items
 
 
-def new_items(items: list[dict]) -> list[dict]:
-    fresh = []
+DATUM = [
+    re.compile(r'<meta[^>]+(?:property|name|itemprop)=["\'](?:article:published_time|datePublished|pubdate|date)["\'][^>]*content="([^"]+)"', re.I),
+    re.compile(r'"datePublished"\s*:\s*"([^"]+)"'),
+    re.compile(r'<time[^>]+datetime="([^"]+)"', re.I),
+]
+
+
+def parse_date(text: str) -> float | None:
+    from email.utils import parsedate_to_datetime
+    from datetime import datetime, timezone
+    text = text.strip()
+    for parse in (lambda t: datetime.fromisoformat(t.replace("Z", "+00:00")), parsedate_to_datetime):
+        try:
+            d = parse(text)
+            return (d if d.tzinfo else d.replace(tzinfo=timezone.utc)).timestamp()
+        except Exception:
+            pass
+    return None
+
+
+def article_text(html: str) -> str:
+    """Tekst članka: paragrafi unutar <article> (bez menija, bočnih traka i tabela)."""
+    html = re.sub(r"<(script|style|nav|aside|footer|header)\b.*?</\1>", " ", html, flags=re.S | re.I)
+    m = re.search(r"<article\b.*?</article>", html, flags=re.S | re.I)
+    dio = m.group(0) if m else html
+    paragrafi = re.findall(r"<p\b[^>]*>(.*?)</p>", dio, flags=re.S | re.I)
+    return unescape(re.sub(r"<[^>]+>", " ", " ".join(paragrafi)))
+
+
+def page_details(it: dict) -> None:
+    """Za članke s portala bez RSS-a: otvori članak i dopuni tekst, datum i naslov."""
+    try:
+        html = get_html(it["link"])
+    except Exception:
+        return
+    it["tekst"] = article_text(html)
+    for pattern in DATUM:
+        m = pattern.search(html)
+        if m and (ts := parse_date(m.group(1))):
+            it["ts"] = ts
+            break
+    if it.get("slug"):
+        for pattern in TITLE_PATTERNS:
+            m = pattern.search(html)
+            if m and m.group(1).strip():
+                it["title"], it["slug"] = unescape(m.group(1)).strip(), False
+                break
+
+
+def new_items(items: list[dict], max_sati: float = MAX_STAROST_SATI) -> list[dict]:
     now = time.time()
+    novi = []
     for it in sorted(items, key=lambda x: x["ts"]):
         key = clean_url(it["link"])
         title_key = "t:" + fold(it["title"])  # isti članak na dva mjesta objavi jednom
         if key in seen or title_key in seen:
             continue
         seen[key] = seen[title_key] = now
+        novi.append(it)
+
+    # portali bez RSS-a: otvori nove članke (paralelno) da se vidi tekst i pravi datum
+    otvori = [it for it in novi if it.get("stranica")]
+    if otvori:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(page_details, otvori))
+        print(f"📖 pročitano {len(otvori)} članaka s portala bez RSS-a")
+
+    fresh = []
+    for it in novi:
         tekst = " ".join((it["title"], it["link"], it.get("uvod", "")))
-        if (it["sve"] or matches(tekst)) \
-                and now - it["ts"] <= MAX_STAROST_SATI * 3600:
+        u_tekstu = TEKST_MIN_SPOMINJANJA > 0 and mentions(it.get("tekst", "")) >= TEKST_MIN_SPOMINJANJA
+        if (it["sve"] or matches(tekst) or u_tekstu) and now - it["ts"] <= max_sati * 3600:
             fresh.append(it)
-    return fresh
+    return sorted(fresh, key=lambda x: x["ts"])
 
 
 # ---------- objava na Discord ----------
@@ -422,9 +496,8 @@ def main() -> None:
         raise SystemExit("Nedostaje DISCORD_WEBHOOK (GitHub → Settings → Secrets → Actions).")
 
     first_run = load_seen()
-    fresh = new_items(fetch_all())
-    if first_run:  # ne zatrpavaj kanal svim starim člancima
-        fresh = fresh[-PRVI_PUT_OBJAVI:]
+    # prvo pokretanje: sve iz zadnjih PRVI_PUT_SATI, inače svi novi članci
+    fresh = new_items(fetch_all(), PRVI_PUT_SATI if first_run else MAX_STAROST_SATI)
 
     try:
         for it in fresh:
