@@ -5,7 +5,7 @@ Runs for free on GitHub Actions, with no server, computer or phone needed.
 
 ## What it tracks
 
-**Portals:** Klix.ba, SportSport.ba, SCsport.ba, BHFudbal.ba, Sportske.ba, Reprezentacija.ba, MeridianSport.ba, Oslobođenje, SportBC.ba, SportskiPuls.ba, Sport.ba, Avaz.ba and the official FK Željezničar website.
+**Portals:** Klix.ba, N1 BiH, Radio Sarajevo, SportSport.ba, SCsport.ba, BHFudbal.ba, Sportske.ba, Reprezentacija.ba, MeridianSport.ba, Oslobođenje, SportBC.ba, SportskiPuls.ba, Sport.ba, Avaz.ba and the official FK Željezničar website.
 
 **Topics:** Željezničar (all grammatical cases), Željo, FKŽ, Grbavica, Manijaci, plavo-bijeli, Ivica Osim, Amar Osim, the head coach and any players on the list.
 
