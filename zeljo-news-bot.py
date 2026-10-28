@@ -180,22 +180,29 @@ def fetch_via_reader(url: str) -> str:
     return urlopen(req, timeout=40).read().decode("utf-8", errors="replace")
 
 
-REZERVA_UPIT = ('("Željezničar" OR "Željezničara" OR "Željezničaru" OR "Željo" OR "Grbavica" '
-                'OR "Grbavici" OR "Amar Osim" OR "Ivica Osim") when:2d')
+# Više jednostavnih upita (Google RSS slabo radi sa složenim upitima); rezultati se spajaju.
+# Starost članka bot provjerava sam (MAX_STAROST_SATI).
+REZERVA_UPITI = ["Željezničar", "Željo", "Grbavica", "Amar Osim"]
 
 
 def read_search(izvor: dict) -> list[dict]:
     """Google News pretraga samo jednog portala (za portale koji blokiraju bota)."""
     dom = domain(izvor.get("pretraga") or izvor.get("stranica") or izvor.get("sajt") or izvor.get("rss"))
-    q = quote_plus(f"site:{dom} {REZERVA_UPIT}")
-    entries = feedparser.parse(f"https://news.google.com/rss/search?q={q}&hl=bs&gl=BA&ceid=BA:bs",
-                               agent=UA).entries
-    items = []
+    entries, po_upitu = [], []
+    for upit in REZERVA_UPITI:
+        q = quote_plus(f"site:{dom} {upit}")
+        nadjeno = feedparser.parse(f"https://news.google.com/rss/search?q={q}&hl=bs&gl=BA&ceid=BA:bs",
+                                   agent=UA).entries
+        po_upitu.append(f"{upit} {len(nadjeno)}")
+        entries += nadjeno
+    print(f"   Google ({dom}): " + " · ".join(po_upitu))
+    items, linkovi = [], set()
     for i, e in enumerate(entries):
         link = e.get("link", "")
         izvor_url = (e.get("source") or {}).get("href", "")
-        if not link or (domain(link) != dom and domain(izvor_url) != dom):
+        if not link or link in linkovi or (domain(link) != dom and domain(izvor_url) != dom):
             continue
+        linkovi.add(link)
         naslov = unescape(e.get("title", "")).strip()
         naslov = re.sub(r"\s+-\s+[^-]+$", "", naslov) if "news.google" in link else naslov
         e["title"] = naslov
