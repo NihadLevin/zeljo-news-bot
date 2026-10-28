@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from html import unescape
 from html.parser import HTMLParser
 from urllib.error import HTTPError
-from urllib.parse import parse_qs, quote_plus, urljoin, urlsplit
+from urllib.parse import quote_plus, urljoin, urlsplit
 from urllib.request import Request, urlopen
 
 import feedparser
@@ -38,8 +38,8 @@ IZVORI = [
     {"naziv": "SportskiPuls.ba", "sajt": "https://sportskipuls.ba/"},
     {"naziv": "Sport.ba", "sajt": "https://sport.ba/"},
     # čitanje stranice
-    {"naziv": "SportSport.ba", "stranica": "https://sportsport.ba/fudbal/bosna-i-hercegovina/",
-     "uzorak": r"^https://sportsport\.ba/[a-z0-9-]+/[a-z0-9-]+/\d+$"},
+    # SportSport blokira sve servere (Cloudflare), pa se čita preko Google News pretrage
+    {"naziv": "SportSport.ba", "pretraga": "https://sportsport.ba"},
     {"naziv": "SCsport.ba", "sajt": "https://scsport.raport.ba/"},
     {"naziv": "BHFudbal.ba", "stranica": "https://bhfudbal.ba/"},
     {"naziv": "Avaz.ba", "stranica": "https://avaz.ba/sport"},
@@ -180,24 +180,19 @@ def fetch_via_reader(url: str) -> str:
     return urlopen(req, timeout=40).read().decode("utf-8", errors="replace")
 
 
-REZERVA_UPIT = "(Željezničar OR Željo OR Grbavica)"
+REZERVA_UPIT = ('("Željezničar" OR "Željezničara" OR "Željezničaru" OR "Željo" OR "Grbavica" '
+                'OR "Grbavici" OR "Amar Osim" OR "Ivica Osim") when:2d')
 
 
 def read_search(izvor: dict) -> list[dict]:
-    """Rezerva kad portal blokira bota: pretraga vijesti samo tog portala (Bing, pa Google News)."""
-    dom = domain(izvor.get("stranica") or izvor.get("sajt") or izvor.get("rss"))
+    """Google News pretraga samo jednog portala (za portale koji blokiraju bota)."""
+    dom = domain(izvor.get("pretraga") or izvor.get("stranica") or izvor.get("sajt") or izvor.get("rss"))
     q = quote_plus(f"site:{dom} {REZERVA_UPIT}")
-    entries = feedparser.parse(f"https://www.bing.com/news/search?q={q}&format=rss&setlang=bs",
+    entries = feedparser.parse(f"https://news.google.com/rss/search?q={q}&hl=bs&gl=BA&ceid=BA:bs",
                                agent=UA).entries
-    if not entries:
-        # Google News: linkovi vode preko news.google.com, ali se u browseru otvore na portalu
-        entries = feedparser.parse(f"https://news.google.com/rss/search?q={q}&hl=bs&gl=BA&ceid=BA:bs",
-                                   agent=UA).entries
     items = []
     for i, e in enumerate(entries):
         link = e.get("link", "")
-        if "bing.com" in link:  # Bing daje svoj link za praćenje, pravi je u parametru url=
-            link = (parse_qs(urlsplit(link).query).get("url") or [""])[0]
         izvor_url = (e.get("source") or {}).get("href", "")
         if not link or (domain(link) != dom and domain(izvor_url) != dom):
             continue
@@ -205,9 +200,71 @@ def read_search(izvor: dict) -> list[dict]:
         naslov = re.sub(r"\s+-\s+[^-]+$", "", naslov) if "news.google" in link else naslov
         e["title"] = naslov
         ts = calendar.timegm(e.published_parsed) if e.get("published_parsed") else time.time() - i
-        items.append({"title": e["title"] or link, "link": link, "ts": ts,
-                      "uvod": re.sub(r"<[^>]+>", " ", unescape(e.get("summary", "")))[:1000]})
+        # pretraga je već tražila ključne riječi i u tekstu članka, pa se članak ne filtrira ponovo
+        items.append({"title": e["title"] or link, "link": link, "ts": ts, "pretraga": True})
     return items
+
+
+# ---------- Google News link -> pravi link članka ----------
+# Google u RSS-u daje svoje linkove (news.google.com/rss/articles/...). Pravi link se dobije
+# kao u browseru: sa stranice članka se pročita potpis, pa se jednim zahtjevom traže adrese.
+# (Isti postupak koristi paket googlenewsdecoder.)
+
+GN_BATCH = "https://news.google.com/_/DotsSplashUi/data/batchexecute"
+
+
+def _gn_params(art_id: str) -> tuple[str, str] | None:
+    url = f"https://news.google.com/rss/articles/{art_id}?hl=bs&gl=BA&ceid=BA:bs"
+    html = urlopen(Request(url, headers={"User-Agent": UA}), timeout=15).read().decode("utf-8", "replace")
+    sg = re.search(r'data-n-a-sg="([^"]+)"', html)
+    ts = re.search(r'data-n-a-ts="([^"]+)"', html)
+    return (sg.group(1), ts.group(1)) if sg and ts else None
+
+
+def decode_google_links(items: list[dict]) -> None:
+    """Zamijeni news.google.com linkove pravim linkovima na portal (ako ne uspije, ostaje Google link)."""
+    ctx = [["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1, None, None, None, None, None, 0, 1],
+           "X", "X", 1, [1, 1, 1], 1, 1, None, 0, 0, None, 0]
+    zahtjevi = []
+    for i, it in enumerate(items):
+        art_id = urlsplit(it["link"]).path.rstrip("/").split("/")[-1]
+        try:
+            params = _gn_params(art_id)
+        except Exception:
+            params = None
+        if params:
+            sg, ts = params
+            inner = ["garturlreq", ctx, art_id, int(ts) if ts.isdigit() else ts, sg]
+            zahtjevi.append(["Fbv4je", json.dumps(inner, separators=(",", ":")), None, str(i)])
+        time.sleep(0.5)
+    if not zahtjevi:
+        return
+    body = "f.req=" + quote_plus(json.dumps([zahtjevi], separators=(",", ":")))
+    try:
+        resp = urlopen(Request(GN_BATCH, data=body.encode(), headers={
+            "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"}),
+            timeout=20).read().decode("utf-8", "replace")
+        tekst = resp.split("\n\n", 1)[1] if "\n\n" in resp else resp
+        tekst = tekst.lstrip()
+        if tekst.startswith(")]}'"):
+            tekst = tekst.split("\n", 1)[1] if "\n" in tekst else tekst[4:]
+        rows = json.loads(tekst)
+    except Exception as e:
+        print(f"⚠️ Google linkovi: {e}")
+        return
+    uspjelo = 0
+    for row in rows:
+        if not (isinstance(row, list) and len(row) >= 4 and row[0] == "wrb.fr" and isinstance(row[2], str)):
+            continue
+        try:
+            payload = json.loads(row[2])
+            idx = int(next(c for c in reversed(row[3:]) if c is not None))
+        except Exception:
+            continue
+        if isinstance(payload, list) and payload[:1] == ["garturlres"] and 0 <= idx < len(items):
+            items[idx]["link"] = payload[1]
+            uspjelo += 1
+    print(f"🔗 Google linkovi pretvoreni u prave: {uspjelo}/{len(items)}")
 
 
 class PageParser(HTMLParser):
@@ -367,6 +424,8 @@ def read_rss_all(url: str) -> list[dict]:
 
 
 def read_source(izvor: dict) -> list[dict]:
+    if "pretraga" in izvor:
+        return read_search(izvor)
     if "rss" in izvor:
         return read_rss_all(izvor["rss"])
     if "stranica" in izvor:
@@ -399,7 +458,7 @@ def fetch_all() -> list[dict]:
                 print(f"↪️ {izvor['naziv']}: preko čitača {len(found)}")
             except Exception as e:
                 print(f"⚠️ {izvor['naziv']} (čitač): {e}")
-        if not found and not izvor.get("sve"):  # i dalje ništa: Bing News pretraga
+        if not found and not izvor.get("sve") and "pretraga" not in izvor:  # i dalje ništa: pretraga
             try:
                 found = read_search(izvor)
                 print(f"↪️ {izvor['naziv']}: preko pretrage {len(found)}")
@@ -489,8 +548,15 @@ def new_items(items: list[dict], max_sati: float = MAX_STAROST_SATI) -> list[dic
     for it in novi:
         tekst = " ".join((it["title"], it["link"], it.get("uvod", "")))
         u_tekstu = TEKST_MIN_SPOMINJANJA > 0 and mentions(it.get("tekst", "")) >= TEKST_MIN_SPOMINJANJA
-        if (it["sve"] or matches(tekst) or u_tekstu) and now - it["ts"] <= max_sati * 3600:
+        provjeren = it["sve"] or it.get("pretraga") or matches(tekst) or u_tekstu
+        if provjeren and now - it["ts"] <= max_sati * 3600:
             fresh.append(it)
+
+    google = [it for it in fresh if "news.google.com" in it["link"]]
+    if google:
+        decode_google_links(google)
+        for it in google:
+            seen[clean_url(it["link"])] = now  # i pravi link se pamti
     return sorted(fresh, key=lambda x: x["ts"])
 
 
