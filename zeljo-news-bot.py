@@ -32,6 +32,8 @@ IZVORI = [
     # N1 u RSS-u daje samo kratak uvod, pa bot otvara nove članke da pročita cijeli tekst
     {"naziv": "N1 BiH", "rss": "https://n1info.ba/feed", "otvori": True},
     {"naziv": "FK Željezničar", "rss": "https://www.fkzeljeznicar.ba/feed/", "sve": True},
+    # navijačka grupa The Maniacs: sve njihove objave su o Želji, pa se objavljuje sve
+    {"naziv": "The Maniacs", "rss": "https://themaniacs.org/feed/", "sve": True},
     {"naziv": "Sportske.ba", "sajt": "https://sportske.ba/"},
     {"naziv": "Reprezentacija.ba", "sajt": "https://reprezentacija.ba/"},
     {"naziv": "MeridianSport.ba", "sajt": "https://meridiansport.ba/"},
