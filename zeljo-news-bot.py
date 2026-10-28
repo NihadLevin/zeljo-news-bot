@@ -37,10 +37,7 @@ IZVORI = [
     {"naziv": "SportDC", "rss": "https://www.sportdc.net/rss", "otvori": True},
     # N1 u RSS-u daje samo kratak uvod, pa bot otvara nove članke da pročita cijeli tekst
     {"naziv": "N1 BiH", "rss": "https://n1info.ba/feed", "otvori": True},
-    # Klubov RSS ne osvježava se od 11.10.2026, pa se čita direktno sa sajta:
-    # prvo preko WordPress API-ja, a ako ne radi, s naslovne stranice. Objavljuje se sve.
-    {"naziv": "FK Željezničar", "wpjson": "https://fkzeljeznicar.ba", "stranica": "https://fkzeljeznicar.ba/",
-     "uzorak": r"^https://fkzeljeznicar\.ba/[a-z0-9-]+/\d+$", "sve": True},
+    {"naziv": "FK Željezničar", "rss": "https://fkzeljeznicar.ba/feed/", "sve": True},
     # navijačka grupa The Maniacs: sve njihove objave su o Želji, pa se objavljuje sve
     {"naziv": "The Maniacs", "rss": "https://themaniacs.org/feed/", "sve": True},
     {"naziv": "Sportske.ba", "sajt": "https://sportske.ba/"},
@@ -448,30 +445,7 @@ def read_rss_all(url: str) -> list[dict]:
     return items
 
 
-def read_wpjson(sajt: str) -> list[dict]:
-    """WordPress API (/wp-json/wp/v2/posts): uvijek svjež, s tačnim datumom i tekstom."""
-    url = sajt.rstrip("/") + "/wp-json/wp/v2/posts?per_page=20&_fields=date_gmt,link,title,content"
-    posts = json.loads(get_html(url))
-    items = []
-    for p in posts:
-        link = p.get("link")
-        title = unescape(re.sub(r"<[^>]+>", "", (p.get("title") or {}).get("rendered", ""))).strip()
-        if not link or not title:
-            continue
-        ts = parse_date((p.get("date_gmt") or "") + "+00:00") or time.time()
-        tekst = re.sub(r"<[^>]+>", " ", unescape((p.get("content") or {}).get("rendered", "")))
-        items.append({"title": title, "link": link, "ts": ts, "tekst": tekst})
-    return items
-
-
 def read_source(izvor: dict) -> list[dict]:
-    if "wpjson" in izvor:
-        try:
-            items = read_wpjson(izvor["wpjson"])
-            if items:
-                return items
-        except Exception as e:
-            print(f"   {izvor['naziv']}: API ne radi ({e}), čitam stranicu")
     if "pretraga" in izvor:
         return read_search(izvor)
     if "rss" in izvor:
