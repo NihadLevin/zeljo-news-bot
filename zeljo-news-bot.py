@@ -29,9 +29,15 @@ WEBHOOK = os.getenv("DISCORD_WEBHOOK", "")  # postavlja se u GitHub Secrets
 IZVORI = [
     # RSS
     {"naziv": "Klix.ba", "rss": "https://www.klix.ba/rss"},
+    {"naziv": "BosnaInfo", "rss": "https://bosnainfo.ba/feed/"},
+    # Vijesti.ba u RSS-u daje samo kratak uvod, pa bot otvara nove članke da pročita tekst
+    {"naziv": "Vijesti.ba", "rss": "https://www.vijesti.ba/rss/", "otvori": True},
+    {"naziv": "Fokus.ba", "rss": "https://www.fokus.ba/sport/feed/", "otvori": True},
+    # SportDC u RSS-u daje samo kratak uvod, pa bot otvara nove članke da pročita tekst
+    {"naziv": "SportDC", "rss": "https://www.sportdc.net/rss", "otvori": True},
     # N1 u RSS-u daje samo kratak uvod, pa bot otvara nove članke da pročita cijeli tekst
     {"naziv": "N1 BiH", "rss": "https://n1info.ba/feed", "otvori": True},
-    {"naziv": "FK Željezničar", "rss": "https://www.fkzeljeznicar.ba/feed/", "sve": True},
+    {"naziv": "FK Željezničar", "rss": "https://fkzeljeznicar.ba/feed/", "sve": True},
     # navijačka grupa The Maniacs: sve njihove objave su o Želji, pa se objavljuje sve
     {"naziv": "The Maniacs", "rss": "https://themaniacs.org/feed/", "sve": True},
     {"naziv": "Sportske.ba", "sajt": "https://sportske.ba/"},
@@ -47,6 +53,8 @@ IZVORI = [
     {"naziv": "SCsport.ba", "sajt": "https://scsport.raport.ba/"},
     {"naziv": "BHFudbal.ba", "stranica": "https://bhfudbal.ba/"},
     {"naziv": "Avaz.ba", "stranica": "https://avaz.ba/sport"},
+    {"naziv": "Faktor.ba", "stranica": "https://faktor.ba/sport",
+     "uzorak": r"^https://faktor\.ba/sport/[a-z0-9-]+/[a-z0-9-]+/\d+$"},
     # Radio Sarajevo nema RSS, ali ima stranicu samo za FK Željezničar
     {"naziv": "Radio Sarajevo", "stranica": "https://radiosarajevo.ba/tagovi/FK%20%C5%BDeljezni%C4%8Dar"},
 ]
@@ -369,7 +377,8 @@ def read_page(izvor: dict, preko_citaca: bool = False) -> list[dict]:
     now = time.time()
     items = []
     for i, (link, text) in enumerate(titles.items()):  # prvi na stranici je najnoviji
-        slug = urlsplit(link).path.strip("/").split("/")[-1]
+        dijelovi = [d for d in urlsplit(link).path.strip("/").split("/") if not d.isdigit()]
+        slug = dijelovi[-1] if dijelovi else ""  # npr. .../salko-hamzic-junak/267500 -> salko-hamzic-junak
         from_slug = len(text) < 15
         title = re.sub(r"[-_]+", " ", re.sub(r"\d{4,}", "", slug)).strip() if from_slug else text
         items.append({"title": title or link, "link": link, "ts": now - i, "slug": from_slug,
