@@ -29,6 +29,8 @@ WEBHOOK = os.getenv("DISCORD_WEBHOOK", "")  # postavlja se u GitHub Secrets
 IZVORI = [
     # RSS
     {"naziv": "Klix.ba", "rss": "https://www.klix.ba/rss"},
+    # N1 u RSS-u daje samo kratak uvod, pa bot otvara nove članke da pročita cijeli tekst
+    {"naziv": "N1 BiH", "rss": "https://n1info.ba/feed", "otvori": True},
     {"naziv": "FK Željezničar", "rss": "https://www.fkzeljeznicar.ba/feed/", "sve": True},
     {"naziv": "Sportske.ba", "sajt": "https://sportske.ba/"},
     {"naziv": "Reprezentacija.ba", "sajt": "https://reprezentacija.ba/"},
@@ -43,6 +45,8 @@ IZVORI = [
     {"naziv": "SCsport.ba", "sajt": "https://scsport.raport.ba/"},
     {"naziv": "BHFudbal.ba", "stranica": "https://bhfudbal.ba/"},
     {"naziv": "Avaz.ba", "stranica": "https://avaz.ba/sport"},
+    # Radio Sarajevo nema RSS, ali ima stranicu samo za FK Željezničar
+    {"naziv": "Radio Sarajevo", "stranica": "https://radiosarajevo.ba/tagovi/FK%20%C5%BDeljezni%C4%8Dar"},
 ]
 
 # Članak se objavljuje ako naslov, link ili uvod (kod RSS-a) spominje nešto s ovih lista.
@@ -326,7 +330,7 @@ def read_rss(url: str) -> list[dict]:
     return items
 
 
-NIJE_CLANAK = re.compile(r"/(tag|tags|kategorija|category|autor|author|page|search|pretraga)/")
+NIJE_CLANAK = re.compile(r"/(tag|tags|tagovi|kategorija|category|autor|author|page|search|pretraga)/")
 
 
 def looks_like_article(url: str, base: str) -> bool:
@@ -474,6 +478,7 @@ def fetch_all() -> list[dict]:
         for it in found:
             it["source"] = izvor["naziv"]
             it["sve"] = izvor.get("sve", False)
+            it["otvori"] = izvor.get("otvori", False)
         status.append(f"{izvor['naziv']} {len(found)}")
         items.extend(found)
     print("Izvori: " + " · ".join(status))
@@ -545,11 +550,12 @@ def new_items(items: list[dict], max_sati: float = MAX_STAROST_SATI) -> list[dic
         novi.append(it)
 
     # portali bez RSS-a: otvori nove članke (paralelno) da se vidi tekst i pravi datum
-    otvori = [it for it in novi if it.get("stranica")]
+    otvori = [it for it in novi if it.get("stranica")
+              or (it.get("otvori") and not matches(" ".join((it["title"], it["link"], it.get("uvod", "")))))]
     if otvori:
         with ThreadPoolExecutor(max_workers=8) as pool:
             list(pool.map(page_details, otvori))
-        print(f"📖 pročitano {len(otvori)} članaka s portala bez RSS-a")
+        print(f"📖 otvoreno {len(otvori)} novih članaka da se pročita tekst")
 
     fresh = []
     for it in novi:
