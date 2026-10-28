@@ -38,7 +38,7 @@ IZVORI = [
     {"naziv": "SportskiPuls.ba", "sajt": "https://sportskipuls.ba/"},
     {"naziv": "Sport.ba", "sajt": "https://sport.ba/"},
     # čitanje stranice
-    {"naziv": "SportSport.ba", "stranica": "https://sportsport.ba/fudbal",
+    {"naziv": "SportSport.ba", "stranica": "https://sportsport.ba/fudbal/bosna-i-hercegovina/",
      "uzorak": r"^https://sportsport\.ba/[a-z0-9-]+/[a-z0-9-]+/\d+$"},
     {"naziv": "SCsport.ba", "sajt": "https://scsport.raport.ba/"},
     {"naziv": "BHFudbal.ba", "stranica": "https://bhfudbal.ba/"},
