@@ -13,8 +13,8 @@ The bot searches the title, link and full article text, so any mention of the cl
 
 ## How it works
 
-1. GitHub Actions runs `zeljo-news-bot.py` every 15 minutes.
-2. The script reads the portals, via RSS where available and by reading the front page for the rest.
+1. cron-job.org triggers the GitHub Actions workflow every 15 minutes from 07:00 to 23:45 (Sarajevo time), which runs `zeljo-news-bot.py`. Nothing runs at night; night articles are posted in the first morning run.
+2. The script reads the portals, via RSS where available and by reading the front page for the rest. SportSport.ba blocks servers (Cloudflare), so it is read through a Google News search of that site, and Google links are converted back to direct SportSport links.
 3. Articles that mention the club are posted to Discord through a webhook.
 4. Posted articles are saved in `vijesti_vidjene.json`, so they are never repeated.
 
@@ -40,7 +40,7 @@ Everything is set at the top of `zeljo-news-bot.py` (open the file on GitHub →
 | Maximum article age | `MAX_STAROST_SATI` |
 | How many text mentions are needed | `TEKST_MIN_SPOMINJANJA` |
 | How far back the first run looks | `PRVI_PUT_SATI` |
-| How often it checks | `cron` in `.github/workflows/vijesti.yml` |
+| How often and when it checks | the cronjob schedule on cron-job.org |
 
 A `*` at the end of a word means "any ending" (`grbavic*` matches Grbavica, Grbavici, Grbavicu…). Diacritics and capitalization don't matter.
 
@@ -56,6 +56,5 @@ If a portal keeps showing `0` or ⚠️, its page structure has probably changed
 
 ## Notes
 
-- GitHub scheduled runs can be delayed by 5–15 minutes, which is normal.
 - The bot posts only the title and link and never copies article text.
 - The webhook URL is a secret, so keep it only in GitHub Secrets.
