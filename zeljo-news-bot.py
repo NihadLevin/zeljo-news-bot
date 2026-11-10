@@ -33,6 +33,7 @@ IZVORI = [
     # Vijesti.ba u RSS-u daje samo kratak uvod, pa bot otvara nove članke da pročita tekst
     {"naziv": "Vijesti.ba", "rss": "https://www.vijesti.ba/rss/", "otvori": True},
     {"naziv": "Fokus.ba", "rss": "https://www.fokus.ba/sport/feed/", "otvori": True},
+    {"naziv": "Fokus.ba", "rss": "https://www.fokus.ba/sport/feed/", "otvori": True},
     # SportDC u RSS-u daje samo kratak uvod, pa bot otvara nove članke da pročita tekst
     {"naziv": "SportDC", "rss": "https://www.sportdc.net/rss", "otvori": False},
     # N1 u RSS-u daje samo kratak uvod, pa bot otvara nove članke da pročita cijeli tekst
